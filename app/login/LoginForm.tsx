@@ -128,7 +128,7 @@ export function LoginForm() {
           onClick={() => setMode("sign-in")}
           className={`rounded-full px-3 py-1 ${
             mode === "sign-in"
-              ? "bg-black text-white"
+              ? "bg-[#2c3a8a] text-white"
               : "bg-gray-100 text-gray-700"
           }`}
         >
@@ -139,7 +139,7 @@ export function LoginForm() {
           onClick={() => setMode("sign-up")}
           className={`rounded-full px-3 py-1 ${
             mode === "sign-up"
-              ? "bg-black text-white"
+              ? "bg-[#2c3a8a] text-white"
               : "bg-gray-100 text-gray-700"
           }`}
         >
@@ -197,7 +197,7 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-2 inline-flex h-10 items-center justify-center rounded-md bg-black px-4 text-sm font-medium text-white transition hover:bg-gray-900 disabled:cursor-not-allowed disabled:bg-gray-500"
+          className="mt-2 inline-flex h-10 items-center justify-center rounded-md bg-[#2c3a8a] px-4 text-sm font-medium text-white transition hover:bg-[#1f2a5f] disabled:cursor-not-allowed disabled:bg-gray-500"
         >
           {loading
             ? mode === "sign-in"

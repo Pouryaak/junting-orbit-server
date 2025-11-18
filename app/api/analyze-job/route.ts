@@ -178,7 +178,10 @@ Now:
   } catch (error) {
     console.error("Unexpected error in POST /api/analyze-job:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      {
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }
