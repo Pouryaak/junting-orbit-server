@@ -78,10 +78,29 @@ export async function POST(req: Request) {
       );
     }
 
+    let submittedAtIso: string;
+    const createdAtValue =
+      typeof data.created_at === "string"
+        ? data.created_at
+        : (data.created_at as Date | null)?.toISOString();
+
+    try {
+      submittedAtIso = new Date(createdAtValue ?? "").toISOString();
+    } catch (dateError) {
+      console.error("Invalid created_at value for feedback:", {
+        createdAt: data.created_at,
+        dateError,
+      });
+      return NextResponse.json(
+        { error: "Failed to record feedback" },
+        { status: 500 }
+      );
+    }
+
     const responsePayload = {
       feedbackId: data.id,
       status: "received" as const,
-      submittedAt: data.created_at,
+      submittedAt: submittedAtIso,
     };
 
     const validatedResponse = FeedbackResponseSchema.safeParse(responsePayload);
