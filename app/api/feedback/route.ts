@@ -50,6 +50,7 @@ export async function POST(req: Request) {
       actual_behavior: toNullable(body.actualBehavior ?? null),
       impact_level: body.impactLevel ?? null,
       environment: toNullable(body.environment ?? null),
+      page_url: toNullable(body.pageUrl ?? null),
     };
 
     const { data, error } = await supabase
