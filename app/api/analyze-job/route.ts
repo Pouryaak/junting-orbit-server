@@ -1,6 +1,7 @@
 // app/api/analyze-job/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utils/supabase/server";
 import { requireUser } from "@/utils/auth";
 import {
@@ -12,6 +13,98 @@ import {
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+type ServerSupabaseClient = Awaited<
+  ReturnType<typeof createSupabaseServerClient>
+>;
+
+type PlanTier = "free" | "premium";
+
+type UsagePolicy = {
+  tier: PlanTier;
+  limit: number | null;
+};
+
+type AnalysisRateLimitResult = {
+  allowed: boolean;
+  remaining: number;
+};
+
+const PLAN_POLICIES: Record<PlanTier, UsagePolicy> = {
+  free: { tier: "free", limit: 5 },
+  premium: { tier: "premium", limit: null },
+};
+
+function normalizeTier(value: unknown): PlanTier | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.toLowerCase();
+
+  if (normalized === "premium") {
+    return "premium";
+  }
+
+  if (normalized === "free") {
+    return "free";
+  }
+
+  return null;
+}
+
+function resolvePlanTier(user: User): PlanTier {
+  const candidates = [
+    user.app_metadata?.subscriptionTier,
+    user.app_metadata?.subscription_tier,
+    user.user_metadata?.subscriptionTier,
+    user.user_metadata?.subscription_tier,
+  ];
+
+  for (const candidate of candidates) {
+    const tier = normalizeTier(candidate);
+    if (tier) {
+      return tier;
+    }
+  }
+
+  return "free";
+}
+
+function resolveUsagePolicy(user: User): UsagePolicy {
+  const tier = resolvePlanTier(user);
+  return PLAN_POLICIES[tier];
+}
+
+async function enforceDailyLimit(
+  supabase: ServerSupabaseClient,
+  userId: string,
+  limit: number
+): Promise<AnalysisRateLimitResult> {
+  const { data, error } = await supabase.rpc("job_analysis_increment_usage", {
+    p_user_id: userId,
+    p_limit: limit,
+  });
+
+  if (error) {
+    throw new Error(error.message ?? "Rate limit RPC failed");
+  }
+
+  if (!data) {
+    throw new Error("Rate limit RPC returned empty result");
+  }
+
+  const result = data as AnalysisRateLimitResult;
+
+  if (
+    typeof result.allowed !== "boolean" ||
+    typeof result.remaining !== "number"
+  ) {
+    throw new Error("Rate limit RPC returned malformed payload");
+  }
+
+  return result;
+}
 
 /**
  * POST /api/analyze-job
@@ -76,6 +169,50 @@ export async function POST(req: Request) {
       body.toneOverride ?? profile.preferred_tone ?? "neutral";
     const effectiveTargetRole =
       body.targetRoleOverride ?? profile.target_role ?? "your target role";
+
+    const usagePolicy = resolveUsagePolicy(user);
+    let remainingAnalyses: number | undefined;
+
+    if (usagePolicy.limit !== null) {
+      let rateLimitSnapshot: AnalysisRateLimitResult;
+
+      try {
+        rateLimitSnapshot = await enforceDailyLimit(
+          supabase,
+          user.id,
+          usagePolicy.limit
+        );
+      } catch (limitError) {
+        console.error("Failed to enforce daily analysis limit:", limitError);
+        return NextResponse.json(
+          { error: "Failed to record usage" },
+          { status: 500 }
+        );
+      }
+
+      if (!rateLimitSnapshot.allowed) {
+        const limitHeaders: Record<string, string> = {
+          "X-Usage-Plan": usagePolicy.tier,
+          "X-RateLimit-Limit": usagePolicy.limit.toString(),
+          "X-RateLimit-Remaining": Math.max(
+            rateLimitSnapshot.remaining,
+            0
+          ).toString(),
+        };
+
+        return NextResponse.json(
+          {
+            error:
+              "Daily analyze limit reached. Come back tomorrow or upgrade when premium launches.",
+            tier: usagePolicy.tier,
+            remaining: rateLimitSnapshot.remaining,
+          },
+          { status: 429, headers: limitHeaders }
+        );
+      }
+
+      remainingAnalyses = rateLimitSnapshot.remaining;
+    }
 
     // 3) Build prompt for the model
     const systemPrompt = `
@@ -174,7 +311,22 @@ Now:
     }
 
     // 6) Return the validated response
-    return NextResponse.json(validated.data, { status: 200 });
+    const responseHeaders: Record<string, string> = {
+      "X-Usage-Plan": usagePolicy.tier,
+    };
+
+    if (usagePolicy.limit !== null && remainingAnalyses !== undefined) {
+      responseHeaders["X-RateLimit-Limit"] = usagePolicy.limit.toString();
+      responseHeaders["X-RateLimit-Remaining"] = Math.max(
+        remainingAnalyses,
+        0
+      ).toString();
+    }
+
+    return NextResponse.json(validated.data, {
+      status: 200,
+      headers: responseHeaders,
+    });
   } catch (error) {
     console.error("Unexpected error in POST /api/analyze-job:", error);
     return NextResponse.json(
