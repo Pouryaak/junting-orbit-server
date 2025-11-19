@@ -208,7 +208,7 @@ export default async function LoginPage() {
                 Indeed
               </a>
               <a
-                href="https://www.glassdoor.com/Job/"
+                href="https://www.glassdoor.com/job/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 bg-white text-[#2c3a8a] px-6 py-3 rounded-full font-semibold hover:bg-indigo-50 transition-colors"
