@@ -1,7 +1,6 @@
 // app/api/analyze-job/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utils/supabase/server";
 import { requireUser } from "@/utils/auth";
 import {
@@ -9,6 +8,7 @@ import {
   AnalyzeJobResponseSchema,
   type AnalyzeJobRequest,
 } from "@/utils/schemas/analyzeJob";
+import { resolveUsagePolicy } from "@/utils/subscription";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -18,63 +18,10 @@ type ServerSupabaseClient = Awaited<
   ReturnType<typeof createSupabaseServerClient>
 >;
 
-type PlanTier = "free" | "premium";
-
-type UsagePolicy = {
-  tier: PlanTier;
-  limit: number | null;
-};
-
 type AnalysisRateLimitResult = {
   allowed: boolean;
   remaining: number;
 };
-
-const PLAN_POLICIES: Record<PlanTier, UsagePolicy> = {
-  free: { tier: "free", limit: 5 },
-  premium: { tier: "premium", limit: null },
-};
-
-function normalizeTier(value: unknown): PlanTier | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.toLowerCase();
-
-  if (normalized === "premium") {
-    return "premium";
-  }
-
-  if (normalized === "free") {
-    return "free";
-  }
-
-  return null;
-}
-
-function resolvePlanTier(user: User): PlanTier {
-  const candidates = [
-    user.app_metadata?.subscriptionTier,
-    user.app_metadata?.subscription_tier,
-    user.user_metadata?.subscriptionTier,
-    user.user_metadata?.subscription_tier,
-  ];
-
-  for (const candidate of candidates) {
-    const tier = normalizeTier(candidate);
-    if (tier) {
-      return tier;
-    }
-  }
-
-  return "free";
-}
-
-function resolveUsagePolicy(user: User): UsagePolicy {
-  const tier = resolvePlanTier(user);
-  return PLAN_POLICIES[tier];
-}
 
 async function enforceDailyLimit(
   supabase: ServerSupabaseClient,
